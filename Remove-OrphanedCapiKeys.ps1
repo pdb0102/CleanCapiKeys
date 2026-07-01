@@ -18,6 +18,24 @@ param(
     [switch] $IgnoreKeepSetGaps
 )
 
+function Get-DefaultNamePattern {
+    # Bare or brace-wrapped GUID, whole-string.
+    return '^\{?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\}?$'
+}
+
+function Get-DefaultSkipList {
+    # Well-known cert-less CAPI machine containers that must never be deleted.
+    return @(
+        'iisConfigurationKey',
+        'iisWasKey',
+        'NetFrameworkConfigurationKey',
+        'TSSecKeySet1',
+        'iisRsaProviderKeyContainer',
+        'PVKKeyContainer',
+        'MS_DPAPI_MACHINEKEY'
+    )
+}
+
 # --- functions are added in later tasks ---
 
 # Entry point (skipped when dot-sourced by tests)
