@@ -109,7 +109,7 @@ function Format-KeyDisposition {
             else { 'WouldDelete' }
 
         $ageDays = if ($null -ne $d.FileLastWriteTime) {
-            [math]::Round(((Get-Date) - $d.FileLastWriteTime).TotalDays, 1)
+            [math]::Round(([datetime]::UtcNow - $d.FileLastWriteTime).TotalDays, 1)
         } else { $null }
 
         [pscustomobject]@{
@@ -203,11 +203,18 @@ function Get-CapiKeyContainer {
                     ($CRYPT_VERIFYCONTEXT -bor $machineFlag -bor $CRYPT_SILENT))
         if (-not $ok) { continue }   # provider not present on this box
         try {
+            # Size the buffer ONCE up front. A NULL-buffer PP_ENUMCONTAINERS query returns the
+            # largest container-name length and does NOT advance the enumeration cursor. Then
+            # make exactly one data call per container (CRYPT_FIRST, then CRYPT_NEXT), resetting
+            # the length each iteration. Issuing a NULL query inside the loop risks advancing the
+            # cursor a second time and silently skipping every other container.
+            $maxLen = [uint32]0
+            [void][CapiCleanup.Native]::CryptGetProvParam($hProv, $PP_ENUMCONTAINERS, $null, [ref]$maxLen, $CRYPT_FIRST)
+            if ($maxLen -le 0) { $maxLen = 1024 }
             $flag = $CRYPT_FIRST
             while ($true) {
-                $len = [uint32]0
-                if (-not [CapiCleanup.Native]::CryptGetProvParam($hProv, $PP_ENUMCONTAINERS, $null, [ref]$len, $flag)) { break }
-                $buf = New-Object byte[] $len
+                $len = $maxLen
+                $buf = New-Object byte[] $maxLen
                 if (-not [CapiCleanup.Native]::CryptGetProvParam($hProv, $PP_ENUMCONTAINERS, $buf, [ref]$len, $flag)) { break }
                 $flag = $CRYPT_NEXT
                 $name = [System.Text.Encoding]::ASCII.GetString($buf, 0, [Math]::Max(0, $len - 1)).Trim([char]0)
@@ -325,8 +332,10 @@ function New-BackupManifestRow {
 function Remove-CapiKeyContainer {
     <#
       Backs up the key file, then deletes the container via CRYPT_DELETEKEYSET, falling
-      back to a raw file delete. Returns 'Deleted' or 'Failed' (or 'Skipped' if ShouldProcess
-      declines). Writes a manifest row into <BackupPath>\manifest.csv.
+      back to a raw file delete. Deletion is HARD-GATED on a verified backup: if the key
+      file is missing or the copy cannot be verified, the container is NOT deleted.
+      Returns 'Deleted', 'Failed', 'Skipped' (ShouldProcess declined), or 'SkippedNoBackup'.
+      Writes a manifest row into <BackupPath>\manifest.csv.
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -345,19 +354,30 @@ function Remove-CapiKeyContainer {
         New-Item -ItemType Directory -Path $BackupPath -Force | Out-Null
     }
 
-    # 1) Back up the file first.
+    # 1) Back up the file first — deletion is hard-gated on a verified backup below.
     $backupFile = Join-Path $BackupPath $Container.UniqueName
+    $backupOk = $false
     if (Test-Path -LiteralPath $Container.FilePath) {
         Copy-Item -LiteralPath $Container.FilePath -Destination $backupFile -Force -ErrorAction Stop
+        $backupOk = Test-Path -LiteralPath $backupFile
     }
     $row = New-BackupManifestRow -Container $Container -BackupFilePath $backupFile -Timestamp (Get-Date)
-    $row | Export-Csv -Path (Join-Path $BackupPath 'manifest.csv') -Append -NoTypeInformation
+    $row | Add-Member -NotePropertyName 'BackedUp' -NotePropertyValue $backupOk -PassThru |
+        Export-Csv -Path (Join-Path $BackupPath 'manifest.csv') -Append -NoTypeInformation
+
+    # Never destroy a key we could not back up (file missing or path mis-resolved). Fail safe:
+    # CRYPT_DELETEKEYSET deletes by logical name independent of FilePath, so without this gate
+    # a mis-resolved path would delete the real container with no recoverable copy.
+    if (-not $backupOk) {
+        Write-Warning "No verified backup for container '$($Container.UniqueName)' (file '$($Container.FilePath)' missing); skipping deletion."
+        return 'SkippedNoBackup'
+    }
 
     if (-not $PSCmdlet.ShouldProcess("$($Container.FriendlyName) [$($Container.Scope)]", 'Delete key container')) {
         return 'Skipped'
     }
 
-    # 2) API delete.
+    # 2) API delete (destroys the container by logical name).
     $hProv = [IntPtr]::Zero
     $deleted = [CapiCleanup.Native]::CryptAcquireContext([ref]$hProv, $Container.FriendlyName,
                     $Container.Provider, [uint32]$Container.ProviderType,
@@ -423,7 +443,7 @@ function Invoke-OrphanedCapiKeyCleanup {
     }
 
     $dispositions = Get-KeyContainerDisposition -Containers $containers -KeepMap $keep.KeepMap `
-        -SkipList $skipList -NamePattern $NamePattern -MinAgeDays $MinAgeDays -Now (Get-Date)
+        -SkipList $skipList -NamePattern $NamePattern -MinAgeDays $MinAgeDays -Now ([datetime]::UtcNow)
 
     # Execute deletions for orphan candidates.
     $resultMap = @{}
