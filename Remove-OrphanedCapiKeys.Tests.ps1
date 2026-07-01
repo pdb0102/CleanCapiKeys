@@ -119,3 +119,21 @@ Describe 'Format-KeyDisposition' {
         $rows[0].UniqueName | Should -Be 'U2'
     }
 }
+
+Describe 'Get-CapiKeyContainerFilePath' {
+    It 'builds a machine path under ProgramData' {
+        $p = Get-CapiKeyContainerFilePath -Scope 'Machine' -UniqueName 'abc_def' -ProgramData 'C:\PD' -AppData 'C:\AD' -UserSid 'S-1-5-21'
+        $p | Should -Be 'C:\PD\Microsoft\Crypto\RSA\MachineKeys\abc_def'
+    }
+    It 'builds a user path under AppData\<SID>' {
+        $p = Get-CapiKeyContainerFilePath -Scope 'User' -UniqueName 'xyz' -ProgramData 'C:\PD' -AppData 'C:\AD' -UserSid 'S-1-5-21'
+        $p | Should -Be 'C:\AD\Microsoft\Crypto\RSA\S-1-5-21\xyz'
+    }
+}
+
+Describe 'Get-CapiKeyContainer' -Tag 'Windows' {
+    It 'returns containers with friendly and unique names' -Skip:(-not $IsWindows) {
+        $c = Get-CapiKeyContainer -Scope 'User'
+        if ($c) { $c[0].FriendlyName | Should -Not -BeNullOrEmpty; $c[0].UniqueName | Should -Not -BeNullOrEmpty }
+    }
+}
