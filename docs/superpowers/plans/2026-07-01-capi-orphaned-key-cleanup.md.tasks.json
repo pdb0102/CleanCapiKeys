@@ -4,62 +4,62 @@
     {
       "id": 0,
       "subject": "Task 0: Dev environment + repo scaffold",
-      "status": "pending",
+      "status": "completed",
       "description": "Install PowerShell 7 + Pester on macOS; create dot-source-guarded script skeleton + Pester harness. Verify: scaffold Pester test passes.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1 -Output Detailed\\\"\", \"acceptanceCriteria\": [\"pwsh 7.x present\", \"Pester >=5 imports\", \"both files parse\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 1,
       "subject": "Task 1: Default configuration (GUID pattern + skip-list)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "Add Get-DefaultNamePattern (GUID regex) and Get-DefaultSkipList (system container names) as pure functions with tests.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"GUID regex matches bare+brace GUID, not descriptive names\", \"skip-list has well-known system names\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Pure classifier Get-KeyContainerDisposition",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "Implement OS-agnostic classifier with precedence Referenced>SystemKey>NonMatchingName>TooNew>OrphanCandidate; full Mac test coverage.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"all 5 statuses correct\", \"precedence exact\", \"case-insensitive keep-map\", \"null age fails safe to keep\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Reporting Format-KeyDisposition + Show filter",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "Add Format-KeyDisposition deriving Action from status/ResultMap and filtering by -Show; OS-agnostic, Mac-tested.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"action derivation correct\", \"ResultMap overrides\", \"Show filters work\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: Windows CryptoAPI enumeration Get-CapiKeyContainer",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "P/Invoke advapi32 to enumerate CAPI containers (friendly+unique names) across RSA CSP providers; pure path builder Mac-tested; Windows tests skip-tagged.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"path builder correct both scopes\", \"non-Windows throws\", \"script parses clean\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Certificate keep-set builder Get-CertificateKeyReference",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4],
       "description": "Build keep-map from all cert stores (both scopes) incl. REQUEST; resolve UniqueKeyContainerName; count gaps. Windows-only.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"KeepMap+GapCount returned\", \"REQUEST store included\", \"CNG not a gap, unreadable CAPI is\", \"non-Windows throws\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: Backup + deletion Remove-CapiKeyContainer",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "Backup key file then delete container via CRYPT_DELETEKEYSET with file-delete fallback; pure manifest-row builder Mac-tested.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"manifest row fields correct\", \"backup precedes delete\", \"API-then-file-fallback\", \"non-Windows throws\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: Orchestrator Invoke-OrphanedCapiKeyCleanup",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [6],
       "description": "Wire preconditions (elevation, keep-set-gap gate), enumeration, keep-set, classification, reporting, gated deletion; injectable seams for Mac testing.\n\n```json:metadata\n{\"files\": [\"Remove-OrphanedCapiKeys.ps1\", \"Remove-OrphanedCapiKeys.Tests.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1\\\"\", \"acceptanceCriteria\": [\"injectable providers\", \"dry-run never deletes\", \"gap gate aborts execute\", \"deletes only orphans\", \"machine needs elevation\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Full-suite green + syntax lint + README runbook",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "Run full Pester suite, parse-check script, optional PSScriptAnalyzer, write README (usage, 4 keep-layers, Windows runbook with assumptions A & B).\n\n```json:metadata\n{\"files\": [\"README.md\", \"Remove-OrphanedCapiKeys.ps1\"], \"verifyCommand\": \"pwsh -NoProfile -c \\\"Invoke-Pester -Path ./Remove-OrphanedCapiKeys.Tests.ps1 -Output Detailed\\\"\", \"acceptanceCriteria\": [\"suite 0 failed\", \"script parses\", \"README complete with runbook\"], \"modelTier\": \"standard\"}\n```"
     }
