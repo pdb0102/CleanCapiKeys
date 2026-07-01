@@ -89,6 +89,47 @@ function Get-KeyContainerDisposition {
     }
 }
 
+function Format-KeyDisposition {
+    <#
+      Pure function. Turns disposition objects into report rows with a derived Action,
+      and filters them according to -Show.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Dispositions,
+        [ValidateSet('ToDelete', 'ToKeep', 'Both')] [string] $Show = 'Both',
+        [hashtable] $ResultMap = @{}   # key = lowercased unique name -> 'Deleted'|'Failed'
+    )
+    $deleteActions = @('WouldDelete', 'Deleted', 'Failed')
+    $rows = foreach ($d in $Dispositions) {
+        $key = if ($null -ne $d.UniqueName) { $d.UniqueName.ToLowerInvariant() } else { '' }
+        $action =
+            if ($d.Status -ne 'OrphanCandidate') { 'WouldKeep' }
+            elseif ($ResultMap.ContainsKey($key)) { $ResultMap[$key] }
+            else { 'WouldDelete' }
+
+        $ageDays = if ($null -ne $d.FileLastWriteTime) {
+            [math]::Round(((Get-Date) - $d.FileLastWriteTime).TotalDays, 1)
+        } else { $null }
+
+        [pscustomobject]@{
+            Scope        = $d.Scope
+            FriendlyName = $d.FriendlyName
+            UniqueName   = $d.UniqueName
+            FilePath     = $d.FilePath
+            FileAgeDays  = $ageDays
+            Status       = $d.Status
+            ReferencedBy = $d.ReferencedBy
+            Action       = $action
+        }
+    }
+    switch ($Show) {
+        'ToDelete' { $rows | Where-Object { $_.Action -in $deleteActions } }
+        'ToKeep'   { $rows | Where-Object { $_.Action -eq 'WouldKeep' } }
+        default    { $rows }
+    }
+}
+
 # Entry point (skipped when dot-sourced by tests)
 if ($MyInvocation.InvocationName -ne '.') {
     Invoke-OrphanedCapiKeyCleanup @PSBoundParameters

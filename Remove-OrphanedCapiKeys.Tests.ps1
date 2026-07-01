@@ -91,3 +91,31 @@ Describe 'Get-KeyContainerDisposition' {
         $r.Status | Should -Be 'Referenced'
     }
 }
+
+Describe 'Format-KeyDisposition' {
+    BeforeAll {
+        $script:disp = @(
+            [pscustomobject]@{ Scope='User'; FriendlyName='g1'; UniqueName='U1'; Provider='p'; FilePath='/f/U1'; FileLastWriteTime=[datetime]'2026-01-01'; Status='OrphanCandidate'; ReferencedBy=$null }
+            [pscustomobject]@{ Scope='User'; FriendlyName='iisConfigurationKey'; UniqueName='U2'; Provider='p'; FilePath='/f/U2'; FileLastWriteTime=[datetime]'2026-01-01'; Status='SystemKey'; ReferencedBy=$null }
+        )
+    }
+    It 'derives WouldDelete for candidates in dry-run' {
+        $rows = Format-KeyDisposition -Dispositions $script:disp -Show Both
+        ($rows | Where-Object UniqueName -eq 'U1').Action | Should -Be 'WouldDelete'
+        ($rows | Where-Object UniqueName -eq 'U2').Action | Should -Be 'WouldKeep'
+    }
+    It 'applies execution results when provided' {
+        $rows = Format-KeyDisposition -Dispositions $script:disp -Show Both -ResultMap @{ 'u1' = 'Deleted' }
+        ($rows | Where-Object UniqueName -eq 'U1').Action | Should -Be 'Deleted'
+    }
+    It 'filters ToDelete' {
+        $rows = Format-KeyDisposition -Dispositions $script:disp -Show ToDelete
+        $rows.Count | Should -Be 1
+        $rows[0].UniqueName | Should -Be 'U1'
+    }
+    It 'filters ToKeep' {
+        $rows = Format-KeyDisposition -Dispositions $script:disp -Show ToKeep
+        $rows.Count | Should -Be 1
+        $rows[0].UniqueName | Should -Be 'U2'
+    }
+}
