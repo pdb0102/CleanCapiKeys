@@ -145,3 +145,20 @@ Describe 'Get-CertificateKeyReference' -Tag 'Windows' {
         $r.GapCount | Should -BeGreaterOrEqual 0
     }
 }
+
+Describe 'New-BackupManifestRow' {
+    It 'captures the identifying fields' {
+        $c = [pscustomobject]@{ FriendlyName='g'; UniqueName='U'; Scope='User'; Provider='p'; FilePath='/f/U' }
+        $row = New-BackupManifestRow -Container $c -BackupFilePath '/b/U' -Timestamp ([datetime]'2026-07-01')
+        $row.UniqueName   | Should -Be 'U'
+        $row.OriginalPath | Should -Be '/f/U'
+        $row.BackupPath   | Should -Be '/b/U'
+    }
+}
+
+Describe 'Remove-CapiKeyContainer' -Tag 'Windows' {
+    It 'is Windows-only' -Skip:($IsWindows) {
+        { Remove-CapiKeyContainer -Container ([pscustomobject]@{}) -BackupPath (Get-Location) } |
+            Should -Throw
+    }
+}

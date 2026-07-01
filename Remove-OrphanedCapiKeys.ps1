@@ -304,6 +304,73 @@ function Get-CertificateKeyReference {
     return [pscustomobject]@{ KeepMap = $keep; GapCount = $gaps.Count; Gaps = $gaps.ToArray() }
 }
 
+function New-BackupManifestRow {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Container,
+        [Parameter(Mandatory)] [string] $BackupFilePath,
+        [Parameter(Mandatory)] [datetime] $Timestamp
+    )
+    [pscustomobject]@{
+        Timestamp    = $Timestamp.ToString('o')
+        Scope        = $Container.Scope
+        FriendlyName = $Container.FriendlyName
+        UniqueName   = $Container.UniqueName
+        Provider     = $Container.Provider
+        OriginalPath = $Container.FilePath
+        BackupPath   = $BackupFilePath
+    }
+}
+
+function Remove-CapiKeyContainer {
+    <#
+      Backs up the key file, then deletes the container via CRYPT_DELETEKEYSET, falling
+      back to a raw file delete. Returns 'Deleted' or 'Failed' (or 'Skipped' if ShouldProcess
+      declines). Writes a manifest row into <BackupPath>\manifest.csv.
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory)] [object] $Container,
+        [Parameter(Mandatory)] [string] $BackupPath
+    )
+    if (-not (Test-IsWindowsHost)) { throw 'Remove-CapiKeyContainer is Windows-only.' }
+    Initialize-CapiInterop
+
+    $CRYPT_DELETEKEYSET   = [uint32]'0x10'
+    $CRYPT_MACHINE_KEYSET = [uint32]'0x20'
+    $CRYPT_SILENT         = [uint32]'0x40'
+    $machineFlag = if ($Container.Scope -eq 'Machine') { $CRYPT_MACHINE_KEYSET } else { [uint32]0 }
+
+    if (-not (Test-Path -LiteralPath $BackupPath)) {
+        New-Item -ItemType Directory -Path $BackupPath -Force | Out-Null
+    }
+
+    # 1) Back up the file first.
+    $backupFile = Join-Path $BackupPath $Container.UniqueName
+    if (Test-Path -LiteralPath $Container.FilePath) {
+        Copy-Item -LiteralPath $Container.FilePath -Destination $backupFile -Force -ErrorAction Stop
+    }
+    $row = New-BackupManifestRow -Container $Container -BackupFilePath $backupFile -Timestamp (Get-Date)
+    $row | Export-Csv -Path (Join-Path $BackupPath 'manifest.csv') -Append -NoTypeInformation
+
+    if (-not $PSCmdlet.ShouldProcess("$($Container.FriendlyName) [$($Container.Scope)]", 'Delete key container')) {
+        return 'Skipped'
+    }
+
+    # 2) API delete.
+    $hProv = [IntPtr]::Zero
+    $deleted = [CapiCleanup.Native]::CryptAcquireContext([ref]$hProv, $Container.FriendlyName,
+                    $Container.Provider, [uint32]$Container.ProviderType,
+                    ($CRYPT_DELETEKEYSET -bor $machineFlag -bor $CRYPT_SILENT))
+
+    # 3) Fallback: raw file delete if API failed or file remains.
+    if (-not $deleted -or (Test-Path -LiteralPath $Container.FilePath)) {
+        try { Remove-Item -LiteralPath $Container.FilePath -Force -ErrorAction Stop; $deleted = $true }
+        catch { $deleted = $false }
+    }
+    return $(if ($deleted) { 'Deleted' } else { 'Failed' })
+}
+
 # Entry point (skipped when dot-sourced by tests)
 if ($MyInvocation.InvocationName -ne '.') {
     Invoke-OrphanedCapiKeyCleanup @PSBoundParameters
