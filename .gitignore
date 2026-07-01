@@ -1,0 +1,3 @@
+# Runtime artifacts produced by Remove-OrphanedCapiKeys.ps1
+CapiKeyReport-*.csv
+CapiKeyBackup-*/
