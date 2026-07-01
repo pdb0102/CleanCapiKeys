@@ -137,3 +137,11 @@ Describe 'Get-CapiKeyContainer' -Tag 'Windows' {
         if ($c) { $c[0].FriendlyName | Should -Not -BeNullOrEmpty; $c[0].UniqueName | Should -Not -BeNullOrEmpty }
     }
 }
+
+Describe 'Get-CertificateKeyReference' -Tag 'Windows' {
+    It 'returns a KeepMap and GapCount' -Skip:(-not $IsWindows) {
+        $r = Get-CertificateKeyReference -Scope 'Both'
+        $r.KeepMap | Should -BeOfType [hashtable]
+        $r.GapCount | Should -BeGreaterOrEqual 0
+    }
+}

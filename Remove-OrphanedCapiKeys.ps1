@@ -248,6 +248,62 @@ function Get-CapiKeyContainer {
     }
 }
 
+function Get-CertificateKeyReference {
+    <#
+      Builds the keep-map from all cert stores in the requested scope(s), plus the REQUEST
+      (pending enrollment) store. Returns @{ KeepMap = <hashtable>; GapCount = <int>;
+      Gaps = <string[]> }. GapCount counts private-key certs whose CAPI unique container
+      name could not be resolved (keep-set may be incomplete -> caller must be conservative).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [ValidateSet('Machine','User','Both')] [string] $Scope)
+
+    if (-not (Test-IsWindowsHost)) { throw 'Get-CertificateKeyReference is Windows-only.' }
+
+    $locations = switch ($Scope) {
+        'Machine' { ,[System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine }
+        'User'    { ,[System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser }
+        'Both'    { [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine,
+                    [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser }
+    }
+    # Over-inclusive: every standard store plus the enrollment-request store.
+    $storeNames = @('My','REQUEST','Root','CertificateAuthority','TrustedPeople','TrustedPublisher','AddressBook','AuthRoot','Disallowed')
+
+    $keep = @{}
+    $gaps = New-Object System.Collections.Generic.List[string]
+
+    foreach ($loc in $locations) {
+        foreach ($sn in $storeNames) {
+            try {
+                $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($sn, $loc)
+                $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly -bor
+                            [System.Security.Cryptography.X509Certificates.OpenFlags]::OpenExistingOnly)
+            } catch { continue }  # store may not exist in this location
+            try {
+                foreach ($cert in $store.Certificates) {
+                    if (-not $cert.HasPrivateKey) { continue }
+                    try {
+                        $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+                        if ($rsa -is [System.Security.Cryptography.RSACryptoServiceProvider]) {
+                            $unique = $rsa.CspKeyContainerInfo.UniqueKeyContainerName
+                            if ($unique) {
+                                $keep[$unique.ToLowerInvariant()] =
+                                    "$($cert.Thumbprint) $($cert.Subject) [$loc/$sn]"
+                            } else {
+                                $gaps.Add("$($cert.Thumbprint) [$loc/$sn] (no unique name)")
+                            }
+                        }
+                        # else: CNG key -> not in Crypto\RSA -> not a gap, skip.
+                    } catch {
+                        $gaps.Add("$($cert.Thumbprint) [$loc/$sn] ($($_.Exception.Message))")
+                    }
+                }
+            } finally { $store.Close() }
+        }
+    }
+    return [pscustomobject]@{ KeepMap = $keep; GapCount = $gaps.Count; Gaps = $gaps.ToArray() }
+}
+
 # Entry point (skipped when dot-sourced by tests)
 if ($MyInvocation.InvocationName -ne '.') {
     Invoke-OrphanedCapiKeyCleanup @PSBoundParameters
