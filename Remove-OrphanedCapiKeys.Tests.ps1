@@ -162,3 +162,56 @@ Describe 'Remove-CapiKeyContainer' -Tag 'Windows' {
             Should -Throw
     }
 }
+
+Describe 'Invoke-OrphanedCapiKeyCleanup' {
+    BeforeAll {
+        $guid = 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6'
+        $script:fakeContainers = {
+            param($Scope)
+            @([pscustomobject]@{
+                FriendlyName='f81d4fae-7dec-11d0-a765-00a0c91e6bf6'; UniqueName='ORPH1'; Scope='User'
+                Provider='Microsoft Enhanced Cryptographic Provider v1.0'; ProviderType=1
+                FilePath='/fake/ORPH1'; FileLastWriteTime=((Get-Date).AddDays(-30))
+            },
+            [pscustomobject]@{
+                FriendlyName='f81d4fae-7dec-11d0-a765-00a0c91e6bf7'; UniqueName='KEEP1'; Scope='User'
+                Provider='Microsoft Enhanced Cryptographic Provider v1.0'; ProviderType=1
+                FilePath='/fake/KEEP1'; FileLastWriteTime=((Get-Date).AddDays(-30))
+            })
+        }
+        $script:keepWithRef = { param($Scope) [pscustomobject]@{ KeepMap = @{ 'keep1' = 'ref' }; GapCount = 0; Gaps = @() } }
+        $script:keepWithGap = { param($Scope) [pscustomobject]@{ KeepMap = @{}; GapCount = 2; Gaps = @('a','b') } }
+    }
+
+    It 'dry-run flags orphan, keeps referenced, and never deletes' {
+        $deleted = @()
+        $rows = Invoke-OrphanedCapiKeyCleanup -Scope User `
+            -ContainerProvider $script:fakeContainers -KeepSetProvider $script:keepWithRef `
+            -Deleter { param($c,$b) $deleted += $c.UniqueName; 'Deleted' } -PassThru
+        ($rows | Where-Object UniqueName -eq 'ORPH1').Action | Should -Be 'WouldDelete'
+        ($rows | Where-Object UniqueName -eq 'KEEP1').Action | Should -Be 'WouldKeep'
+        $deleted.Count | Should -Be 0
+    }
+
+    It 'aborts on keep-set gap under -Execute without override' {
+        { Invoke-OrphanedCapiKeyCleanup -Scope User -Execute `
+            -ContainerProvider $script:fakeContainers -KeepSetProvider $script:keepWithGap `
+            -Deleter { param($c,$b) 'Deleted' } -PassThru } | Should -Throw '*keep-set*'
+    }
+
+    It 'executes deletion only for orphan candidates' {
+        $deleted = New-Object System.Collections.ArrayList
+        $rows = Invoke-OrphanedCapiKeyCleanup -Scope User -Execute `
+            -ContainerProvider $script:fakeContainers -KeepSetProvider $script:keepWithRef `
+            -Deleter { param($c,$b) [void]$deleted.Add($c.UniqueName); 'Deleted' } -PassThru
+        $deleted | Should -Be @('ORPH1')
+        ($rows | Where-Object UniqueName -eq 'ORPH1').Action | Should -Be 'Deleted'
+    }
+
+    It 'aborts machine scope without elevation' {
+        { Invoke-OrphanedCapiKeyCleanup -Scope Machine `
+            -ContainerProvider $script:fakeContainers -KeepSetProvider $script:keepWithRef `
+            -Deleter { param($c,$b) 'Deleted' } -IsElevatedOverride $false -PassThru } |
+            Should -Throw '*elevation*'
+    }
+}

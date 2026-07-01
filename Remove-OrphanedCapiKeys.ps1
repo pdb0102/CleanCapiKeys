@@ -371,6 +371,80 @@ function Remove-CapiKeyContainer {
     return $(if ($deleted) { 'Deleted' } else { 'Failed' })
 }
 
+function Test-IsElevated {
+    if (-not (Test-IsWindowsHost)) { return $false }
+    $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    return (New-Object System.Security.Principal.WindowsPrincipal($id)).IsInRole(
+        [System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Invoke-OrphanedCapiKeyCleanup {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [ValidateSet('Machine','User','Both')] [string] $Scope = 'Both',
+        [switch] $Execute,
+        [ValidateSet('ToDelete','ToKeep','Both')] [string] $Show = 'Both',
+        [string] $NamePattern,
+        [int] $MinAgeDays = 1,
+        [string] $BackupPath,
+        [string[]] $AdditionalSkip = @(),
+        [string] $ReportPath,
+        [switch] $IgnoreKeepSetGaps,
+        # Injectable seams (default to real Windows implementations):
+        [scriptblock] $ContainerProvider = { param($s) Get-CapiKeyContainer -Scope $s },
+        [scriptblock] $KeepSetProvider   = { param($s) Get-CertificateKeyReference -Scope $s },
+        [scriptblock] $Deleter           = { param($c, $b) Remove-CapiKeyContainer -Container $c -BackupPath $b },
+        [nullable[bool]] $IsElevatedOverride = $null,
+        [switch] $PassThru
+    )
+    if (-not $NamePattern) { $NamePattern = Get-DefaultNamePattern }
+    if (-not $BackupPath)  { $BackupPath  = Join-Path (Get-Location) ("CapiKeyBackup-" + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
+    if (-not $ReportPath)  { $ReportPath  = Join-Path (Get-Location) ("CapiKeyReport-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".csv") }
+    $skipList = (Get-DefaultSkipList) + $AdditionalSkip
+
+    $scopesToScan = if ($Scope -eq 'Both') { @('Machine','User') } else { @($Scope) }
+
+    # Precondition: Machine scope requires elevation.
+    $elevated = if ($null -ne $IsElevatedOverride) { [bool]$IsElevatedOverride } else { Test-IsElevated }
+    if (($scopesToScan -contains 'Machine') -and -not $elevated) {
+        throw 'Machine scope requires elevation (run as Administrator). Aborting.'
+    }
+
+    # Enumerate containers and build the keep-set.
+    $containers = foreach ($s in $scopesToScan) { & $ContainerProvider $s }
+    $containers = @($containers)
+    $keep = & $KeepSetProvider $Scope
+
+    if ($keep.GapCount -gt 0) {
+        Write-Warning "Keep-set may be incomplete: $($keep.GapCount) private-key cert(s) could not be resolved."
+        if ($Execute -and -not $IgnoreKeepSetGaps) {
+            throw "Refusing to delete: keep-set gap of $($keep.GapCount). Re-run with -IgnoreKeepSetGaps to override."
+        }
+    }
+
+    $dispositions = Get-KeyContainerDisposition -Containers $containers -KeepMap $keep.KeepMap `
+        -SkipList $skipList -NamePattern $NamePattern -MinAgeDays $MinAgeDays -Now (Get-Date)
+
+    # Execute deletions for orphan candidates.
+    $resultMap = @{}
+    if ($Execute) {
+        foreach ($d in ($dispositions | Where-Object Status -eq 'OrphanCandidate')) {
+            $container = $containers | Where-Object { $_.UniqueName -eq $d.UniqueName } | Select-Object -First 1
+            $resultMap[$d.UniqueName.ToLowerInvariant()] = (& $Deleter $container $BackupPath)
+        }
+    }
+
+    $rows = Format-KeyDisposition -Dispositions $dispositions -Show $Show -ResultMap $resultMap
+    $rows | Export-Csv -Path $ReportPath -NoTypeInformation
+    $rows | Format-Table -AutoSize | Out-Host
+
+    $mode = if ($Execute) { 'EXECUTE' } else { 'DRY-RUN' }
+    $summary = $rows | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
+    Write-Host "[$mode] $($summary -join '  ')  Report: $ReportPath"
+
+    if ($PassThru) { return $rows }
+}
+
 # Entry point (skipped when dot-sourced by tests)
 if ($MyInvocation.InvocationName -ne '.') {
     Invoke-OrphanedCapiKeyCleanup @PSBoundParameters
